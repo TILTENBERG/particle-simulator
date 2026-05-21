@@ -1,0 +1,17 @@
+# Compiled binaries and build directories
+*.exe
+*.o
+*.obj
+*.pdb
+*.ilk
+
+# VS Code machine-specific settings and databases
+.vscode/settings.json
+.vscode/c_cpp_properties.json
+.vscode/.browse.VC.db
+.vscode/ipch/
+
+# OS-specific temporary files
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -69,13 +69,13 @@ int main()
  */
     std::string title = "Collision Simulator";
     sf::RenderWindow window(sf::VideoMode({800, 800}), title);
-    
-    // Disable frame rate limit to see the true potential of our optimized physics, 
+
+    // Disable frame rate limit to see the true potential of our optimized physics,
     // but we can also keep VSync or limit it if preferred. Let's keep it unlimited/uncapped
     // so we can see the raw FPS, or set it to 60 as requested.
     window.setFramerateLimit(0); // Set to 0 to measure raw performance!
 
-    std::vector<Particle> particles = generateParticles(1000);
+    std::vector<Particle> particles = generateParticles(100);
     SpatialGrid grid(800.0f, 800.0f, 20.0f); // 800x800 width/height, 20.0f max particle radius
     sf::Clock clock;
 
@@ -92,7 +92,7 @@ int main()
         }
 
         float dt = clock.restart().asSeconds();
-        
+
         // Update FPS in title
         timeAccumulator += dt;
         fpsFrameCount++;

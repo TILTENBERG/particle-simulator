@@ -39,6 +39,8 @@ public:
     Vector2D getVelocity() const { return velocity; }
     Vector2D getAcceleration() const { return acceleration; }
 
+    void addVelocity(const Vector2D &v) { velocity = velocity + v; }
+
     // Draws the particle on the display
     void render(sf::RenderWindow &window)
     {

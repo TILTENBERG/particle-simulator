@@ -5,6 +5,8 @@
 #include <random>
 #include <windows.h>
 
+#include <thread>
+#include <atomic>
 #include "Particle.hpp"
 #include "Vector2D.hpp"
 #include "Partition.hpp"
@@ -60,38 +62,49 @@ std::vector<Particle> generateParticles(int count)
     return particles;
 }
 
-int main()
+void renderingThread(sf::RenderWindow& window, std::vector<Particle>& particles, SpatialGrid& grid, std::atomic<bool>& running)
 {
-    /* AllocConsole();
-     FILE *f;
-     freopen_s(&f, "CONOUT$", "w", stdout);
-     std::cout << "Debug info will now appear here!\n";
- */
-    std::string title = "Collision Simulator";
-    sf::RenderWindow window(sf::VideoMode({800, 800}), title);
+    // Activate the window's context in this thread
+    (void)window.setActive(true);
 
-    // Disable frame rate limit to see the true potential of our optimized physics,
-    // but we can also keep VSync or limit it if preferred. Let's keep it unlimited/uncapped
-    // so we can see the raw FPS, or set it to 60 as requested.
-    window.setFramerateLimit(0); // Set to 0 to measure raw performance!
-
-    std::vector<Particle> particles = generateParticles(100);
-    SpatialGrid grid(800.0f, 800.0f, 20.0f); // 800x800 width/height, 20.0f max particle radius
     sf::Clock clock;
+    sf::Vector2i prevWindowPos = window.getPosition();
 
-    static int frameCount = 0;
     static float timeAccumulator = 0.0f;
     static int fpsFrameCount = 0;
+    std::string title = "Collision Simulator";
 
-    while (window.isOpen())
+    while (running)
     {
-        while (const std::optional event = window.pollEvent())
-        {
-            if (event->is<sf::Event::Closed>())
-                window.close();
-        }
-
         float dt = clock.restart().asSeconds();
+        if (dt > 0.1f) dt = 0.1f; // Prevent extreme physics updates on window stalls
+
+        // 1. Calculate window movement relative to the desktop for inertial forces
+        sf::Vector2i currWindowPos = window.getPosition();
+        sf::Vector2i windowDelta = currWindowPos - prevWindowPos;
+        prevWindowPos = currWindowPos;
+
+        // Apply inertial effect: window acceleration/movement transfers force in the opposite direction
+        if (windowDelta.x != 0 || windowDelta.y != 0)
+        {
+            // The multiplier converts the pixel translation into physical velocity impulse
+            Vector2D inertialImpulse(
+                static_cast<float>(-windowDelta.x) * 12.0f,
+                static_cast<float>(-windowDelta.y) * 12.0f
+            );
+
+            // Cap the maximum velocity impulse to keep physics stable
+            float maxImpulse = 800.0f;
+            if (inertialImpulse.length() > maxImpulse)
+            {
+                inertialImpulse = inertialImpulse.normalize() * maxImpulse;
+            }
+
+            for (auto &obj : particles)
+            {
+                obj.addVelocity(inertialImpulse);
+            }
+        }
 
         // Update FPS in title
         timeAccumulator += dt;
@@ -106,13 +119,6 @@ int main()
 
         window.clear();
 
-        // Calculate total energy before physics update
-        float energyBefore = 0.0f;
-        for (auto &obj : particles)
-        {
-            energyBefore += obj.kineticEnergy();
-        }
-
         // Update physics for all particles
         for (auto &obj : particles)
         {
@@ -121,32 +127,6 @@ int main()
 
         // Handle collisions between particles using Spatial Grid
         grid.handleCollisions(particles);
-        /*
-        // Calculate total energy after physics update
-        float energyAfter = 0.0f;
-        for (auto &obj : particles)
-        {
-            energyAfter += obj.kineticEnergy();
-        }
-
-        // Print debug info every 60 frames (once per second at 60 FPS)
-        if (frameCount % 60 == 0)
-        {
-            std::cout << "\n=== Frame " << frameCount << " ===\n";
-            std::cout << "Energy before: " << energyBefore
-                      << " | after: " << energyAfter
-                      << " | diff = " << (energyAfter - energyBefore)
-                      << std::endl;
-
-            // Print info for first particle as example
-            if (!particles.empty())
-            {
-                std::cout << "\nFirst particle details:\n";
-                particles[0].debugInfo();
-            }
-        }
-        frameCount++;
-        */
 
         // Render all particles
         for (auto &obj : particles)
@@ -155,5 +135,52 @@ int main()
         }
 
         window.display();
+
+        // Yield slightly to prevent 100% core utilization when frame limit is off
+        sf::sleep(sf::milliseconds(1));
+    }
+}
+
+int main()
+{
+    /* AllocConsole();
+     FILE *f;
+     freopen_s(&f, "CONOUT$", "w", stdout);
+     std::cout << "Debug info will now appear here!\n";
+    */
+    std::string title = "Collision Simulator";
+    sf::RenderWindow window(sf::VideoMode({800, 800}), title);
+    
+    // Set to 0 so we can display raw FPS and responsiveness in the background thread
+    window.setFramerateLimit(0);
+
+    std::vector<Particle> particles = generateParticles(100);
+    SpatialGrid grid(800.0f, 800.0f, 20.0f); // 800x800 width/height, 20.0f max particle radius
+
+    // Deactivate the OpenGL context on the main thread so the rendering thread can safely claim it
+    (void)window.setActive(false);
+
+    std::atomic<bool> running{true};
+    std::thread renderThread(renderingThread, std::ref(window), std::ref(particles), std::ref(grid), std::ref(running));
+
+    while (window.isOpen())
+    {
+        while (const std::optional event = window.pollEvent())
+        {
+            if (event->is<sf::Event::Closed>())
+            {
+                running = false;
+                window.close();
+            }
+        }
+
+        // Yield main thread to avoid hogging CPU cycles during OS event polling
+        sf::sleep(sf::milliseconds(10));
+    }
+
+    // Clean up the physics and rendering thread safely before exiting
+    if (renderThread.joinable())
+    {
+        renderThread.join();
     }
 }

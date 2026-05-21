@@ -5,6 +5,7 @@
 
 static constexpr float width = 800.0f;
 static constexpr float height = 800.0f;
+static constexpr float gravity = 800.0f; // Downward gravity in pixels/s^2
 
 class Particle
 {
@@ -51,6 +52,9 @@ public:
     // Updates the position of the particle
     void update_physics(float dt)
     {
+        // Apply constant gravity downward
+        velocity = velocity + Vector2D(0.0f, gravity) * dt;
+
         velocity = velocity + acceleration * dt;
         cur_position = cur_position + velocity * dt + (acceleration * dt * dt) / 2;
         collision_walls();
@@ -60,6 +64,7 @@ public:
     {
         float x = cur_position.getX();
         float y = cur_position.getY();
+        const float restitution = 0.8f; // Energy loss on bounce
 
         if (x + radius > width || x < radius)
         {
@@ -67,7 +72,7 @@ public:
                 cur_position = Vector2D(width - radius, y);
             else
                 cur_position = Vector2D(radius, y);
-            velocity = Vector2D(-velocity.getX(), velocity.getY());
+            velocity = Vector2D(-velocity.getX() * restitution, velocity.getY());
         }
 
         if (y + radius > height || y < radius)
@@ -76,7 +81,7 @@ public:
                 cur_position = Vector2D(x, height - radius);
             else
                 cur_position = Vector2D(x, radius);
-            velocity = Vector2D(velocity.getX(), -velocity.getY());
+            velocity = Vector2D(velocity.getX() * 0.98f, -velocity.getY() * restitution); // 0.98 friction on sliding along floor/ceiling
         }
     }
 
@@ -110,9 +115,11 @@ public:
             float m1 = mass;
             float m2 = other.mass;
 
-            // Calculate new normal velocities using elastic collision formula
-            float v1n_after = (v1n * (m1 - m2) + 2.0f * m2 * v2n) / (m1 + m2);
-            float v2n_after = (v2n * (m2 - m1) + 2.0f * m1 * v1n) / (m1 + m2);
+            float e = 0.8f; // Coefficient of restitution (inelastic collisions)
+
+            // Calculate new normal velocities using inelastic collision formula
+            float v1n_after = (v1n * (m1 - e * m2) + (1.0f + e) * m2 * v2n) / (m1 + m2);
+            float v2n_after = (v2n * (m2 - e * m1) + (1.0f + e) * m1 * v1n) / (m1 + m2);
 
             // Reconstruct velocity vectors
             velocity = normal * v1n_after + tangent * v1t;

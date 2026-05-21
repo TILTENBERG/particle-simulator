@@ -21,6 +21,8 @@ private:
     sf::Color color;
 
 public:
+    static float restitution;
+
     // constructors
     Particle() : radius(0.0f), mass(0.0f) {}
     Particle(const float r, const float m, const Vector2D &cur_pos, const Vector2D &acc, const Vector2D &vel, const sf::Color &col)
@@ -64,7 +66,6 @@ public:
     {
         float x = cur_position.getX();
         float y = cur_position.getY();
-        const float restitution = 0.8f; // Energy loss on bounce
 
         if (x + radius > width || x < radius)
         {
@@ -115,7 +116,7 @@ public:
             float m1 = mass;
             float m2 = other.mass;
 
-            float e = 0.8f; // Coefficient of restitution (inelastic collisions)
+            float e = restitution; // Coefficient of restitution (inelastic collisions)
 
             // Calculate new normal velocities using inelastic collision formula
             float v1n_after = (v1n * (m1 - e * m2) + (1.0f + e) * m2 * v2n) / (m1 + m2);

@@ -467,8 +467,97 @@ public:
     }
 };
 
+// Reusable Checkbox Class for Menu configuration (SFML 3 compliant)
+class Checkbox
+{
+public:
+    std::string label;
+    bool checked;
+    sf::Vector2f position;
+    
+    sf::RectangleShape box;
+    sf::RectangleShape fillBox;
+    sf::Text labelText;
+    bool isHovered;
+
+    Checkbox(const std::string &lbl, bool startVal, sf::Vector2f pos, const sf::Font &font)
+        : label(lbl), checked(startVal), position(pos), isHovered(false), labelText(font)
+    {
+        // Outermost outline box
+        box.setSize(sf::Vector2f(16.0f, 16.0f));
+        box.setFillColor(sf::Color(20, 23, 27)); // Premium dark charcoal fill
+        box.setOutlineThickness(1.5f);
+        box.setOutlineColor(sf::Color(70, 75, 80)); // Subdued border
+        box.setPosition(position);
+
+        // Filled inner box (for Checked visual state)
+        fillBox.setSize(sf::Vector2f(10.0f, 10.0f));
+        fillBox.setFillColor(sf::Color(0, 180, 255)); // Neon cyan fill
+        fillBox.setPosition(sf::Vector2f(position.x + 3.0f, position.y + 3.0f));
+
+        // Label Text
+        labelText.setString(label);
+        labelText.setCharacterSize(14);
+        labelText.setFillColor(sf::Color(170, 178, 189));
+        labelText.setPosition(sf::Vector2f(position.x + 26.0f, position.y - 1.0f));
+    }
+
+    bool checkHover(const sf::RenderWindow &window) const
+    {
+        sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+        sf::Vector2f mousePosF(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
+        
+        // Hover bounds check (covering both the checkbox square and the label text area for easy clicking)
+        float textW = labelText.getLocalBounds().size.x;
+        float textH = 16.0f;
+        return (mousePosF.x >= position.x && mousePosF.x <= position.x + 26.0f + textW &&
+                mousePosF.y >= position.y && mousePosF.y <= position.y + textH);
+    }
+
+    void handleEvent(const sf::Event &event, const sf::RenderWindow &window)
+    {
+        if (event.is<sf::Event::MouseButtonPressed>())
+        {
+            const auto* mouseEvent = event.getIf<sf::Event::MouseButtonPressed>();
+            if (mouseEvent && mouseEvent->button == sf::Mouse::Button::Left)
+            {
+                if (checkHover(window))
+                {
+                    checked = !checked;
+                }
+            }
+        }
+    }
+
+    void update(const sf::RenderWindow &window)
+    {
+        isHovered = checkHover(window);
+
+        if (isHovered)
+        {
+            box.setOutlineColor(sf::Color(0, 180, 255)); // Bright neon cyan highlight border
+            labelText.setFillColor(sf::Color::White); // Highlight label text
+        }
+        else
+        {
+            box.setOutlineColor(sf::Color(70, 75, 80));
+            labelText.setFillColor(sf::Color(170, 178, 189));
+        }
+    }
+
+    void render(sf::RenderWindow &window)
+    {
+        window.draw(box);
+        if (checked)
+        {
+            window.draw(fillBox);
+        }
+        window.draw(labelText);
+    }
+};
+
 // Generates particles with custom settings
-std::vector<Particle> generateParticles(int count, float maxRadius, float maxMass)
+std::vector<Particle> generateParticles(int count, float maxRadius, float maxMass, bool randomRadius, bool randomMass)
 {
     std::vector<Particle> particles;
     particles.reserve(count);
@@ -486,7 +575,7 @@ std::vector<Particle> generateParticles(int count, float maxRadius, float maxMas
 
     for (int i = 0; i < count; ++i)
     {
-        float r = radiusDist(gen);
+        float r = randomRadius ? radiusDist(gen) : maxRadius;
 
         // Clamp spawn position inside screen boundaries
         std::uniform_real_distribution<float> posXDist(r, width - r);
@@ -500,7 +589,7 @@ std::vector<Particle> generateParticles(int count, float maxRadius, float maxMas
         float vy = velDist(gen);
         Vector2D velocity(vx, vy);
 
-        float mass = massDist(gen);
+        float mass = randomMass ? massDist(gen) : maxMass;
         Vector2D acceleration(0.0f, 0.0f);
 
         sf::Color color(colorDist(gen), colorDist(gen), colorDist(gen));
@@ -628,6 +717,9 @@ int main()
     Slider sliderMass("Max Mass (kg)", 1.0f, 100.0f, 20.0f, sf::Vector2f(200.0f, 420.0f), 400.0f, font, false);
     Slider sliderRestitution("Restitution (Bounciness)", 0.0f, 1.0f, 0.8f, sf::Vector2f(200.0f, 520.0f), 400.0f, font, false);
 
+    Checkbox checkboxRandomRadius("Randomize Radius", true, sf::Vector2f(200.0f, 342.0f), font);
+    Checkbox checkboxRandomMass("Randomize Mass", true, sf::Vector2f(200.0f, 442.0f), font);
+
     // Button Setup
     Button startButton("START SIMULATION", sf::Vector2f(280.0f, 620.0f), sf::Vector2f(240.0f, 50.0f), font);
 
@@ -691,6 +783,9 @@ int main()
                 sliderMass.handleEvent(*event, window);
                 sliderRestitution.handleEvent(*event, window);
 
+                checkboxRandomRadius.handleEvent(*event, window);
+                checkboxRandomMass.handleEvent(*event, window);
+
                 bool clicked = false;
                 startButton.handleEvent(*event, window, clicked);
                 if (clicked)
@@ -702,7 +797,7 @@ int main()
                     float restitution = sliderRestitution.currentValue;
 
                     Particle::restitution = restitution;
-                    particles = generateParticles(count, maxRadius, maxMass);
+                    particles = generateParticles(count, maxRadius, maxMass, checkboxRandomRadius.checked, checkboxRandomMass.checked);
                     grid = SpatialGrid(800.0f, 800.0f, maxRadius);
 
                     state = AppState::RUNNING;
@@ -720,10 +815,33 @@ int main()
         {
             // Update UI elements
             sliderCount.update(window);
+            
+            // Dynamically adjust slider labels based on checkboxes
+            if (checkboxRandomRadius.checked)
+            {
+                sliderRadius.labelText.setString("Max Radius (px)");
+            }
+            else
+            {
+                sliderRadius.labelText.setString("Constant Radius (px)");
+            }
             sliderRadius.update(window);
+
+            if (checkboxRandomMass.checked)
+            {
+                sliderMass.labelText.setString("Max Mass (kg)");
+            }
+            else
+            {
+                sliderMass.labelText.setString("Constant Mass (kg)");
+            }
             sliderMass.update(window);
+
             sliderRestitution.update(window);
             startButton.update(window);
+
+            checkboxRandomRadius.update(window);
+            checkboxRandomMass.update(window);
 
             window.clear(sf::Color(25, 27, 29)); // Premium sleek dark charcoal background
 
@@ -756,7 +874,11 @@ int main()
 
             sliderCount.render(window);
             sliderRadius.render(window);
+            checkboxRandomRadius.render(window);
+
             sliderMass.render(window);
+            checkboxRandomMass.render(window);
+
             sliderRestitution.render(window);
 
             startButton.render(window);

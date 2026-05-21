@@ -44,10 +44,14 @@ public:
     sf::Text valueText;
     bool isDragging;
     bool isHovered;
+    
+    // Keyboard input variables
+    bool isEditing;
+    std::string inputBuffer;
 
     Slider(const std::string &lbl, float minVal, float maxVal, float startVal, sf::Vector2f pos, float w, const sf::Font &font, bool isInt = false)
         : label(lbl), minValue(minVal), maxValue(maxVal), currentValue(startVal), isInteger(isInt), position(pos), width(w), isDragging(false),
-          isHovered(false), labelText(font), valueText(font)
+          isHovered(false), isEditing(false), labelText(font), valueText(font)
     {
         // Track: a slim modern backdrop line
         track.setSize(sf::Vector2f(width, 6.0f));
@@ -89,6 +93,8 @@ public:
 
     void updateValueText()
     {
+        if (isEditing) return; // Keep dynamic typing text visible
+
         if (isInteger)
         {
             valueText.setString(std::to_string(static_cast<int>(std::round(currentValue))));
@@ -106,29 +112,158 @@ public:
         valueText.setPosition(sf::Vector2f(position.x + width, position.y - 28.0f));
     }
 
+    void commitValue()
+    {
+        if (inputBuffer.empty())
+        {
+            updateValueText();
+            return;
+        }
+        try
+        {
+            float val = std::stof(inputBuffer);
+            currentValue = std::clamp(val, minValue, maxValue);
+            if (isInteger)
+            {
+                currentValue = std::round(currentValue);
+            }
+        }
+        catch (...)
+        {
+            // Revert back on parse exception
+        }
+        updateHandlePosition();
+        updateValueText();
+    }
+
     void handleEvent(const sf::Event &event, const sf::RenderWindow &window)
     {
         sf::Vector2i mousePos = sf::Mouse::getPosition(window);
         sf::Vector2f mousePosF(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
 
+        // 1. Handle keyboard entries if this slider is actively in focus
+        if (isEditing)
+        {
+            if (event.is<sf::Event::TextEntered>())
+            {
+                const auto* textEvent = event.getIf<sf::Event::TextEntered>();
+                if (textEvent)
+                {
+                    char32_t unicode = textEvent->unicode;
+                    if (unicode == 8) // Backspace
+                    {
+                        if (!inputBuffer.empty())
+                        {
+                            inputBuffer.pop_back();
+                        }
+                    }
+                    else if (unicode == 13 || unicode == 10) // Enter / Return
+                    {
+                        commitValue();
+                        isEditing = false;
+                        return;
+                    }
+                    else if (unicode == 27) // Escape
+                    {
+                        isEditing = false;
+                        updateValueText();
+                        return;
+                    }
+                    else if (unicode >= '0' && unicode <= '9')
+                    {
+                        inputBuffer += static_cast<char>(unicode);
+                    }
+                    else if (unicode == '.' && !isInteger)
+                    {
+                        // Allow only one decimal point
+                        if (inputBuffer.find('.') == std::string::npos)
+                        {
+                            inputBuffer += '.';
+                        }
+                    }
+
+                    valueText.setString(inputBuffer + "_");
+                    sf::FloatRect valBounds = valueText.getLocalBounds();
+                    valueText.setOrigin(sf::Vector2f(valBounds.position.x + valBounds.size.x, 0.0f));
+                    valueText.setPosition(sf::Vector2f(position.x + width, position.y - 28.0f));
+                }
+            }
+
+            if (event.is<sf::Event::KeyPressed>())
+            {
+                const auto* keyEvent = event.getIf<sf::Event::KeyPressed>();
+                if (keyEvent)
+                {
+                    if (keyEvent->code == sf::Keyboard::Key::Enter)
+                    {
+                        commitValue();
+                        isEditing = false;
+                        return;
+                    }
+                    else if (keyEvent->code == sf::Keyboard::Key::Escape)
+                    {
+                        isEditing = false;
+                        updateValueText();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 2. Handle mouse clicks and slider dragging
         if (event.is<sf::Event::MouseButtonPressed>())
         {
             const auto* mouseEvent = event.getIf<sf::Event::MouseButtonPressed>();
             if (mouseEvent && mouseEvent->button == sf::Mouse::Button::Left)
             {
-                // Check if clicking on or near the handle
-                float dx = mousePosF.x - handle.getPosition().x;
-                float dy = mousePosF.y - handle.getPosition().y;
-                if (dx * dx + dy * dy <= 225.0f) // Within comfortable click radius
+                // Check if clicking in the value text region (right aligned)
+                float valLeft = position.x + width - std::max(valueText.getLocalBounds().size.x, 50.0f);
+                float valRight = position.x + width;
+                float valTop = position.y - 32.0f;
+                float valBottom = position.y - 8.0f;
+                bool clickedVal = (mousePosF.x >= valLeft && mousePosF.x <= valRight && mousePosF.y >= valTop && mousePosF.y <= valBottom);
+
+                if (clickedVal)
                 {
-                    isDragging = true;
+                    isEditing = true;
+                    isDragging = false;
+                    if (isInteger)
+                    {
+                        inputBuffer = std::to_string(static_cast<int>(std::round(currentValue)));
+                    }
+                    else
+                    {
+                        std::stringstream ss;
+                        ss << std::fixed << std::setprecision(2) << currentValue;
+                        inputBuffer = ss.str();
+                    }
+                    valueText.setString(inputBuffer + "_");
+                    sf::FloatRect valBounds = valueText.getLocalBounds();
+                    valueText.setOrigin(sf::Vector2f(valBounds.position.x + valBounds.size.x, 0.0f));
+                    valueText.setPosition(sf::Vector2f(position.x + width, position.y - 28.0f));
                 }
-                // Or if clicking on the track itself
-                else if (mousePosF.x >= position.x && mousePosF.x <= position.x + width &&
-                         mousePosF.y >= position.y - 8.0f && mousePosF.y <= position.y + 14.0f)
+                else
                 {
-                    isDragging = true;
-                    updateValueFromMouse(mousePosF.x);
+                    if (isEditing)
+                    {
+                        commitValue();
+                        isEditing = false;
+                    }
+
+                    // Check if clicking on or near the handle
+                    float dx = mousePosF.x - handle.getPosition().x;
+                    float dy = mousePosF.y - handle.getPosition().y;
+                    if (dx * dx + dy * dy <= 225.0f) // Within comfortable click radius
+                    {
+                        isDragging = true;
+                    }
+                    // Or if clicking on the track itself
+                    else if (mousePosF.x >= position.x && mousePosF.x <= position.x + width &&
+                             mousePosF.y >= position.y - 8.0f && mousePosF.y <= position.y + 14.0f)
+                    {
+                        isDragging = true;
+                        updateValueFromMouse(mousePosF.x);
+                    }
                 }
             }
         }
@@ -142,7 +277,7 @@ public:
             }
         }
 
-        if (isDragging)
+        if (isDragging && !isEditing)
         {
             updateValueFromMouse(mousePosF.x);
         }
@@ -172,29 +307,56 @@ public:
         bool hoverTrack = (mousePosF.x >= position.x && mousePosF.x <= position.x + width &&
                            mousePosF.y >= position.y - 8.0f && mousePosF.y <= position.y + 14.0f);
 
+        // Check if hovered over the value box
+        float valLeft = position.x + width - std::max(valueText.getLocalBounds().size.x, 50.0f);
+        float valRight = position.x + width;
+        float valTop = position.y - 32.0f;
+        float valBottom = position.y - 8.0f;
+        bool hoverValue = (mousePosF.x >= valLeft && mousePosF.x <= valRight && mousePosF.y >= valTop && mousePosF.y <= valBottom);
+
         isHovered = hoverHandle || hoverTrack;
 
         // Visual hover/drag animations
-        if (isDragging)
+        if (isEditing)
         {
-            handle.setFillColor(sf::Color(255, 255, 255));
-            handle.setOutlineColor(sf::Color(0, 180, 255));
-            handle.setRadius(12.0f);
-            handle.setOrigin(sf::Vector2f(12.0f, 12.0f));
-        }
-        else if (isHovered)
-        {
-            handle.setFillColor(sf::Color(230, 235, 240));
-            handle.setOutlineColor(sf::Color(0, 150, 255));
-            handle.setRadius(11.0f);
-            handle.setOrigin(sf::Vector2f(11.0f, 11.0f));
-        }
-        else
-        {
-            handle.setFillColor(sf::Color(200, 204, 209));
+            valueText.setFillColor(sf::Color(255, 200, 0)); // Amber text
+            handle.setFillColor(sf::Color(120, 125, 130)); // Dimmed handle
             handle.setOutlineColor(sf::Color(70, 75, 80));
             handle.setRadius(9.0f);
             handle.setOrigin(sf::Vector2f(9.0f, 9.0f));
+        }
+        else
+        {
+            if (hoverValue)
+            {
+                valueText.setFillColor(sf::Color(255, 255, 255)); // Highlight on hover
+            }
+            else
+            {
+                valueText.setFillColor(sf::Color(0, 180, 255)); // Standard neon cyan
+            }
+
+            if (isDragging)
+            {
+                handle.setFillColor(sf::Color(255, 255, 255));
+                handle.setOutlineColor(sf::Color(0, 180, 255));
+                handle.setRadius(12.0f);
+                handle.setOrigin(sf::Vector2f(12.0f, 12.0f));
+            }
+            else if (isHovered)
+            {
+                handle.setFillColor(sf::Color(230, 235, 240));
+                handle.setOutlineColor(sf::Color(0, 150, 255));
+                handle.setRadius(11.0f);
+                handle.setOrigin(sf::Vector2f(11.0f, 11.0f));
+            }
+            else
+            {
+                handle.setFillColor(sf::Color(200, 204, 209));
+                handle.setOutlineColor(sf::Color(70, 75, 80));
+                handle.setRadius(9.0f);
+                handle.setOrigin(sf::Vector2f(9.0f, 9.0f));
+            }
         }
 
         // Active track progress width
@@ -218,6 +380,16 @@ public:
         window.draw(handle);
         window.draw(labelText);
         window.draw(valueText);
+
+        // Draw an underline for the value input when editing
+        if (isEditing)
+        {
+            float textW = std::max(valueText.getLocalBounds().size.x, 50.0f);
+            sf::RectangleShape underline(sf::Vector2f(textW, 2.0f));
+            underline.setFillColor(sf::Color(0, 180, 255)); // Bright neon cyan
+            underline.setPosition(sf::Vector2f(position.x + width - textW, position.y - 6.0f));
+            window.draw(underline);
+        }
     }
 };
 
